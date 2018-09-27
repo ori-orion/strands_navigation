@@ -27,11 +27,11 @@
 		<param name="move_base_planner" type="string" value="$(arg move_base_planner)"/>
 	</node>
 
-<!-- 	<node pkg="topological_navigation" name="execute_policy_server" type="execute_policy_server.py" output="screen" respawn="true">
+ 	<node pkg="topological_navigation" name="execute_policy_server" type="execute_policy_server.py" output="screen" respawn="false">
 		<param name="retries" type="int" value="$(arg execute_policy_retries)"/>
 		<param name="move_base_planner" type="string" value="$(arg move_base_planner)"/>
 	</node>
- -->
+ 
 	<node pkg="topological_navigation" type="visualise_map.py" name="visualise_map" args="$(arg map)" respawn="true"/>
 
 	<node pkg="topological_rviz_tools" name="topmap_interface" type="python_topmap_interface.py" output="screen">
