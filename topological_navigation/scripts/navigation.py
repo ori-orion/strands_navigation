@@ -76,7 +76,7 @@ class TopologicalNavServer(object):
         self.closest_node = "Unknown"
         self.actions_needed=[]
 
-        move_base_actions = ['move_base','human_aware_navigation','han_adapt_speed','han_vc_corridor','han_vc_junction']
+        move_base_actions = ['move_base/move','move_base','human_aware_navigation','han_adapt_speed','han_vc_corridor','han_vc_junction']
         self.move_base_actions = rospy.get_param('~move_base_actions', move_base_actions)     
 
         self.navigation_activated=False
@@ -129,7 +129,7 @@ class TopologicalNavServer(object):
         self.move_base_planner = rospy.get_param('~move_base_planner', 'DWAPlannerROS')
         #Creating Reconfigure Client
         rospy.loginfo("Creating Reconfigure Client")
-        self.rcnfclient = dynamic_reconfigure.client.Client('move_base/'+self.move_base_planner)
+        self.rcnfclient = dynamic_reconfigure.client.Client('real_move_base/'+self.move_base_planner)
         self.init_dynparams = self.rcnfclient.get_configuration()
 
 

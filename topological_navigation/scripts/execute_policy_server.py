@@ -91,7 +91,7 @@ class PolicyExecutionServer(object):
         self.n_tries = rospy.get_param('~retries', 3)
         
         rospy.on_shutdown(self._on_node_shutdown)
-        self.move_base_actions = ['move_base']
+        self.move_base_actions = ['move_base','move_base/move']
         self.needed_actions=[]
         
         
@@ -138,16 +138,16 @@ class PolicyExecutionServer(object):
         self.move_base_planner = rospy.get_param('~move_base_planner', 'DWAPlannerROS')
             
         #Creating Reconfigure Client
-        for i in self.needed_move_base_actions:
+        '''for i in self.needed_move_base_actions:
             service_created = self.create_reconfigure_client(i)
             if service_created and i == 'move_base':
-                mb_service_created = True
+                mb_service_created = True'''
                 
         if not mb_service_created:
             while not mb_service_created and not self.cancelled:
                 rospy.sleep(1)
-                rospy.logwarn("%s must be created! will keep trying until its there" %rcnfsrvrname)
-                mb_service_created = self.create_reconfigure_client('move_base')
+                rospy.logwarn("CREATING RECONFIG CLIENT")
+                mb_service_created = self.create_reconfigure_client('real_move_base')
         
         if not self.cancelled:
     
