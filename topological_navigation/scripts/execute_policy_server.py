@@ -30,7 +30,6 @@ from topological_navigation.navigation_stats import *
 
 import topological_navigation.msg
 import strands_navigation_msgs.msg
-import dynamic_reconfigure.client
 
 
 """
@@ -43,25 +42,6 @@ def get_node(top_map, node_name):
         if i.name == node_name:
             return i
     return None
-
-
-# a list of parameters top nav is allowed to change 
-# and their mapping from dwa speak 
-# if not listed then the param is not sent, 
-# e.g. TrajectoryPlannerROS doesn't have tolerances
-DYNPARAM_MAPPING = {
-        'DWAPlannerROS': {
-            'yaw_goal_tolerance': 'yaw_goal_tolerance',
-            'xy_goal_tolerance': 'xy_goal_tolerance',
-            'max_vel_x': 'max_vel_x',
-            'max_trans_vel' : 'max_trans_vel',
-        },
-
-        'TrajectoryPlannerROS': {
-            'max_vel_x': 'max_vel_x',
-            'max_trans_vel' : 'max_vel_x',
-        },
-    }
 
 
 
@@ -137,17 +117,7 @@ class PolicyExecutionServer(object):
 
         self.move_base_planner = rospy.get_param('~move_base_planner', 'DWAPlannerROS')
             
-        #Creating Reconfigure Client
-        '''for i in self.needed_move_base_actions:
-            service_created = self.create_reconfigure_client(i)
-            if service_created and i == 'move_base':
-                mb_service_created = True'''
-                
-        if not mb_service_created:
-            while not mb_service_created and not self.cancelled:
-                rospy.sleep(1)
-                rospy.logwarn("CREATING RECONFIG CLIENT")
-                mb_service_created = self.create_reconfigure_client('real_move_base')
+
         
         if not self.cancelled:
     
@@ -164,75 +134,6 @@ class PolicyExecutionServer(object):
             rospy.spin()
 
 
-    def create_reconfigure_client(self, mb_action):
-        """
-        Creates the dynamic reconfigure clients for the given actions
-        """
-        rcnfsrvrname= rospy.get_namespace() + mb_action +'/' + self.move_base_planner
-        test_service = rcnfsrvrname+'/set_parameters'
-        
-        service_created = False
-        service_created_tries = 50
-        while service_created_tries > 0 and not self.cancelled:              
-            service_names = rosservice.get_service_list()
-            if test_service in service_names:
-                rospy.loginfo("Creating Reconfigure Client %s" %rcnfsrvrname)
-                client = dynamic_reconfigure.client.Client(rcnfsrvrname, timeout=10)
-                self.rcnfclient[mb_action] = client
-                self.init_dynparams[mb_action] = client.get_configuration()
-                return True
-            else:
-                service_created_tries -= 1
-                if service_created_tries > 0:
-                    rospy.logwarn("I couldn't create reconfigure client %s. remaining tries %d" % (rcnfsrvrname,service_created_tries))
-                    rospy.sleep(1)
-                else:
-                    rospy.logerr("I couldn't create reconfigure client %s. is %s running?" % (rcnfsrvrname, i))
-        return False
-
-
-    def store_initial_parameters(self):
-        for mb_action, client in self.rcnfclient.iteritems():
-            try:
-                self.init_dynparams[mb_action] = client.get_configuration()
-            except Exception as e:
-                rospy.logwarn("I couldn't store initial move_base parameters. Caught exception: %s. will continue with previous params", exc)
-
-
-    def reset_reconfigure_params(self, mb_action):
-        if mb_action in self.init_dynparams:
-            self._do_movebase_reconf(mb_action, self.init_dynparams[mb_action])
-        else:
-            rospy.logwarn('No initial parameters stored for %s' % mb_action)
-
-
-
-
-    def reconfigure_movebase_params(self, mb_action, params):
-        translated_params = {}
-        translation = DYNPARAM_MAPPING[self.move_base_planner]
-        for k, v in params.iteritems():
-            if k in translation:
-                translated_params[translation[k]] = v
-            else:
-                rospy.logwarn('%s has no dynparam translation for %s' % (self.move_base_planner, k))
-        self._do_movebase_reconf(mb_action, translated_params)
-
-    """
-    Reconfigure Move Base
-     
-    """
-    def _do_movebase_reconf(self, mb_action, params):
-        if mb_action in self.rcnfclient:
-            try:
-                self.rcnfclient[mb_action].update_configuration(params)
-            except rospy.ServiceException as exc:
-                rospy.logwarn("I couldn't reconfigure %s parameters. Caught service exception: %s. will continue with previous params" % (mb_action, exc))
-        else:
-            rospy.logwarn("No dynamic reconfigure for %s" % mb_action)
-
-
-
     """
      Preempt CallBack
      
@@ -244,8 +145,6 @@ class PolicyExecutionServer(object):
         self.navigation_activated = False
         self.monNavClient.cancel_all_goals()
         #self._as.set_preempted(self._result)
-        for mb_action in self.move_base_actions:
-            self.reset_reconfigure_params(mb_action)
 
     """
      Closest Node CallBack
@@ -306,8 +205,6 @@ class PolicyExecutionServer(object):
     def executeCallback(self, goal):
         self.cancelled = False
         self.preempted = False
-
-        self.store_initial_parameters()
 
         result = self.followRoute(goal.route)
     
@@ -452,8 +349,8 @@ class PolicyExecutionServer(object):
                                     else:
                                         rospy.loginfo("case B.3")
                                         # If closest_node and its target are not connected by move_base type action navigate to closest_node
-                                        rospy.loginfo('Do move_base to %s' %self.closest_node)#(route.source[0])
-                                        self.current_action = 'move_base'
+                                        rospy.loginfo('Do move_base/move to %s' %self.closest_node)#(route.source[0])
+                                        self.current_action = 'move_base/move'
                                         success=self.navigate_to(self.current_action,self.closest_node)
                                         #if previous action was just navigate to waypoint before trying no move_base action do not reset fail counter
                                         no_reset=True 
@@ -467,8 +364,8 @@ class PolicyExecutionServer(object):
                             else :
                                 rospy.loginfo("case D")
                                 # Closest node not in route navigate to it (if it suceeds policy execution will be successful)
-                                rospy.loginfo('Do move_base to %s' %self.closest_node)
-                                self.current_action = 'move_base'
+                                rospy.loginfo('Do move_base/move to %s' %self.closest_node)
+                                self.current_action = 'move_base/move'
                                 success=self.navigate_to(self.current_action,self.closest_node)
                         else:
                             #Maximun number of failures exceeded
@@ -486,8 +383,8 @@ class PolicyExecutionServer(object):
 
                         if not cl_node.localise_by_topic:
                             if self.nfails < self.n_tries :
-                                rospy.loginfo('Do move_base to %s' %self.current_node)
-                                self.current_action = 'move_base'
+                                rospy.loginfo('Do move_base/move to %s' %self.current_node)
+                                self.current_action = 'move_base/move'
                                 success=self.navigate_to(self.current_action,self.current_node)
                                 if success :
                                     keep_executing = False
@@ -595,21 +492,10 @@ class PolicyExecutionServer(object):
             if action in self.move_base_actions and node_in_route :
                 rospy.set_param("move_base/NavfnROS/default_tolerance",tolerance/math.sqrt(2))
 
-            if next_action in self.move_base_actions :
-                params = { 'yaw_goal_tolerance' : 6.28318531, 'max_vel_x':top_vel, 'max_trans_vel':top_vel}   #360 degrees tolerance
-            else:
-                if next_action == 'none':                                                #Next node is the final destination
-                    params = { 'yaw_goal_tolerance' : ytolerance, 'max_vel_x':top_vel, 'max_trans_vel':top_vel} #Node predetermined tolerance
-                else:                                                                    # Next action not move_base type
-                    params = { 'yaw_goal_tolerance' : 0.523598776, 'max_vel_x':top_vel, 'max_trans_vel':top_vel}   #30 degrees tolerance
-
-            if action in self.move_base_actions:
-                self.reconfigure_movebase_params(action, params)
                 
             (succeeded, status) = self.monitored_navigation(target_pose, action)
 
-            if action in self.move_base_actions:
-                self.reset_reconfigure_params(action)
+
             
             rospy.set_param("move_base/NavfnROS/default_tolerance",0.0)
 
@@ -730,8 +616,7 @@ class PolicyExecutionServer(object):
     """
     def _on_node_shutdown(self):
         self.cancelled = True
-        for mb_action in self.move_base_actions:
-            self.reset_reconfigure_params(mb_action)
+
 
 if __name__ == '__main__':
     mode="normal"
