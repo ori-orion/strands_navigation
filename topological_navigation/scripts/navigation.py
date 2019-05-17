@@ -14,8 +14,6 @@ from strands_navigation_msgs.msg import MonitoredNavigationGoal
 from strands_navigation_msgs.msg import NavStatistics
 from strands_navigation_msgs.msg import CurrentEdge
 
-from strands_navigation_msgs.srv import ReconfAtEdges
-
 from actionlib_msgs.msg import *
 from move_base_msgs.msg import *
 from std_msgs.msg import String
@@ -32,23 +30,6 @@ import dynamic_reconfigure.client
 
 import strands_navigation_msgs.msg
 
-# a list of parameters top nav is allowed to change
-# and their mapping from dwa speak
-# if not listed then the param is not sent,
-# e.g. TrajectoryPlannerROS doesn't have tolerances
-DYNPARAM_MAPPING = {
-        'DWAPlannerROS': {
-            'yaw_goal_tolerance': 'yaw_goal_tolerance',
-            'xy_goal_tolerance': 'xy_goal_tolerance',
-            'max_vel_x': 'max_vel_x',
-            'max_trans_vel' : 'max_trans_vel',
-        },
-
-        'TrajectoryPlannerROS': {
-            'max_vel_x': 'max_vel_x',
-            'max_trans_vel' : 'max_vel_x',
-        },
-    }
 
 
 """
@@ -89,8 +70,6 @@ class TopologicalNavServer(object):
         if not self.move_base_name in self.move_base_actions:
             self.move_base_actions.append(self.move_base_name)
 
-        # nh: not used any more?
-        # self.move_base_reconf_service = rospy.get_param('~move_base_reconf_service', 'DWAPlannerROS')
 
 
         self.navigation_activated=False
@@ -135,71 +114,9 @@ class TopologicalNavServer(object):
 
 
 
-        # Check if using edge recofigure server
-        self.edge_reconfigure=rospy.get_param('~reconfigure_edges',False)
-        if self.edge_reconfigure:
-            self.current_edge_group='none'
-            rospy.loginfo("Using edge reconfigure ...")
-            self.edge_groups = rospy.get_param('/edge_nav_reconfig_groups', {})
-
-
 
         rospy.loginfo("All Done ...")
         rospy.spin()
-
-    def init_reconfigure(self):
-        self.move_base_planner = rospy.get_param('~move_base_planner', 'move_base/DWAPlannerROS')
-        #Creating Reconfigure Client
-        rospy.loginfo("Creating Reconfigure Client")
-        self.rcnfclient = dynamic_reconfigure.client.Client(self.move_base_planner)
-        self.init_dynparams = self.rcnfclient.get_configuration()
-
-    def reconf_movebase(self, cedg, cnode, intermediate):
-#        if cedg.top_vel <= 0.1:
-#            ctopvel = 0.55
-#        else:
-#            ctopvel = cedg.top_vel
-        if cnode.xy_goal_tolerance <= 0.1:
-            cxygtol = 0.1
-        else:
-            cxygtol = cnode.xy_goal_tolerance
-        if not intermediate:
-            if cnode.yaw_goal_tolerance <= 0.087266:
-                cytol = 0.087266
-            else:
-                cytol = cnode.yaw_goal_tolerance
-        else:
-            cytol = 6.283
-        params = { 'yaw_goal_tolerance' : cytol, '':cxygtol }   # No orientation restrictions, 'max_vel_x':ctopvel,
-        print "reconfiguring %s with %s" % (self.move_base_name, params)
-        print intermediate
-        self.reconfigure_movebase_params(params)
-
-
-
-    def reconfigure_movebase_params(self, params):
-        #self.move_base_planner = rospy.get_param('~move_base_planner', 'move_base/DWAPlannerROS')
-        self.init_dynparams = self.rcnfclient.get_configuration()
-        translated_params = {}
-        key = self.move_base_planner[self.move_base_planner.rfind('/') + 1:]
-        translation = DYNPARAM_MAPPING[key]
-        for k, v in params.iteritems():
-            if k in translation:
-                translated_params[translation[k]] = v
-            else:
-                rospy.logwarn('%s has no dynparam translation for %s' % (self.move_base_planner, k))
-        self._do_movebase_reconf(translated_params)
-
-
-    def _do_movebase_reconf(self, params):
-        try:
-            self.rcnfclient.update_configuration(params)
-        except rospy.ServiceException as exc:
-            rospy.logwarn("I couldn't reconfigure move_base parameters. Caught service exception: %s. will continue with previous params", exc)
-
-    def reset_reconf(self):
-        self._do_movebase_reconf(self.init_dynparams)
-
 
     def get_edge_id(self, orig, dest, a):
         found = False
@@ -379,39 +296,6 @@ class TopologicalNavServer(object):
 
 
 
-    def edgeReconfigureManager(self, edge_id):
-        """
-        edgeReconfigureManager
-
-        Checks if an edge requires reconfiguration of the
-        """
-
-#        print self.edge_groups
-
-        edge_group = 'none'
-        for group in self.edge_groups:
-            print "Check Edge: ", edge_id, "in ", group
-            if edge_id in self.edge_groups[group]["edges"]:
-                edge_group = group
-                break
-
-        print "current group: ", self.current_edge_group
-        print "edge group: ", edge_group
-
-        if edge_group is not self.current_edge_group: # and edge_group != 'none':
-            print "RECONFIGURING EDGE: ", edge_id
-            print "TO ", edge_group
-            try:
-                rospy.wait_for_service('reconf_at_edges', timeout=3)
-                reconf_at_edges = rospy.ServiceProxy('reconf_at_edges', ReconfAtEdges)
-                resp1 = reconf_at_edges(edge_id)
-                print resp1.success
-                if resp1.success: # set current_edge_group only if successful
-                    self.current_edge_group = edge_group
-            except rospy.ServiceException, e:
-                rospy.logerr("Service call failed: %s"%e)
-        print "-------"
-
 
 
     """
@@ -426,8 +310,6 @@ class TopologicalNavServer(object):
         Orig = route.source[0]
         Targ = target
         self._target = Targ
-
-        self.init_reconfigure()
 
         rospy.loginfo("%d Nodes on route" %nnodes)
 
@@ -448,7 +330,6 @@ class TopologicalNavServer(object):
                 print 'Do %s to %s' % (self.move_base_name, self.closest_node)
                 inf = o_node.pose
                 params = { 'yaw_goal_tolerance' : 0.087266 }   #5 degrees tolerance
-                self.reconfigure_movebase_params(params)
 
                 self.current_target = Orig
                 nav_ok, inc= self.monitored_navigation(inf, self.move_base_name)
@@ -494,9 +375,6 @@ class TopologicalNavServer(object):
             rospy.loginfo("Current edge: %s" %current_edge)
             self.cur_edge.publish(current_edge)
 
-            # If we are using edge reconfigure
-            if self.edge_reconfigure:
-                self.edgeReconfigureManager(cedg.edge_id)
 
 
             self._feedback.route = '%s to %s using %s' %(route.source[rindex], cedg.node, a)
@@ -505,15 +383,6 @@ class TopologicalNavServer(object):
 
             cnode = get_node(self.lnodes, cedg.node)
 
-            # do not care for the orientation of the waypoint if is not the last waypoint AND
-            # the current and following action are move_base or human_aware_navigation
-            if rindex < route_len-1 and a1 in self.move_base_actions and a in self.move_base_actions :
-                self.reconf_movebase(cedg, cnode, True)
-            else:
-                if self.no_orientation:
-                    self.reconf_movebase(cedg, cnode, True)
-                else:
-                    self.reconf_movebase(cedg, cnode, False)
 
 
             self.current_target = cedg.node
@@ -522,8 +391,6 @@ class TopologicalNavServer(object):
             dt_text=self.stat.get_start_time_str()
             inf = cnode.pose
             nav_ok, inc = self.monitored_navigation(inf, a)
-            params = { 'yaw_goal_tolerance' : 0.087266, 'xy_goal_tolerance':0.1 }   #5 degrees tolerance   'max_vel_x':0.55,
-            self.reconfigure_movebase_params(params)
 
 
 
@@ -561,8 +428,6 @@ class TopologicalNavServer(object):
             self.next_action = 'none'
             rindex=rindex+1
 
-
-        self.reset_reconf()
 
 
         self.navigation_activated=False
